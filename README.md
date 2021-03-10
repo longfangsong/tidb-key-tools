@@ -1,3 +1,5 @@
+⚠️：WIP now!
+
 # TiDB Key Guess
 
 A library which can guess what kind of key a string stand for, and explain it for you.
@@ -29,8 +31,8 @@ or
 
 and other strange, encoded, unintelligible key formats?
 
-Then unless you are as clever with a computer or very familiar with the keys encode rules,
+Then unless you are as clever as a computer or very familiar with the keys encode rules,
 or you may say to yourself "What heck is this!" and spend hours to read the code to find out.
 
 In fact, since there are patterns in keys in TiDB system, no matter how they are encoded, 
-can be decoded with the help of program, and this library should do this job.
+can be decoded with the help of program, and this library should do this job (and maybe can help make a key for quering...)

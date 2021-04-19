@@ -1,3 +1,4 @@
+mod mvcc;
 mod utils;
 
 use wasm_bindgen::prelude::*;

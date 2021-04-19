@@ -1,5 +1,5 @@
 [package]
-name = "tidb-key-guess"
+name = "tidb-key-tools"
 version = "0.1.0"
 authors = ["longfangsong <longfangsong@icloud.com>"]
 edition = "2018"

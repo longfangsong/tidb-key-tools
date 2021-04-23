@@ -35,7 +35,7 @@ Then unless you are as clever as a computer or very familiar with the keys encod
 or you may say to yourself "What heck is this!" and spend hours to read the code to find out.
 
 In fact, since there are patterns in keys in TiDB system, no matter how they are encoded,
-it should be possible to decoded them the help a program, and this library should do this job.
+it should be possible to decoded and explain them with the help a program, and this library should do this job.
 
 Moreover, many behaviour in TiKV is highly related with the encoded key, so this library also
 want to help you to make these kinds of keys easier.

@@ -13,5 +13,5 @@ jobs:
           toolchain: nightly
       - uses: actions-rs/install@v0.1
         with:
-          command: wasm-pack
+          crate: wasm-pack
       - run: wasm-pack build && wasm-pack test --chrome --firefox --headless

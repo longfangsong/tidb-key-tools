@@ -1,5 +1,7 @@
+mod endian;
 mod mvcc;
 mod utils;
+mod varint;
 
 use wasm_bindgen::prelude::*;
 
@@ -39,7 +41,23 @@ fn parse_golang_fmt_print(mut code: &str) -> anyhow::Result<Vec<u8>> {
     if code.ends_with(']') {
         code = &code[..code.len() - 1];
     }
-    let str_forms = code.split(' ');
+    let str_forms = code.split(' ').map(|it| it.trim());
+    let mut result = Vec::with_capacity(str_forms.clone().count());
+    for str_form in str_forms {
+        let byte_form = u8::from_str_radix(str_form, 10)?;
+        result.push(byte_form);
+    }
+    Ok(result)
+}
+
+fn parse_rust_print(mut code: &str) -> anyhow::Result<Vec<u8>> {
+    if code.starts_with('[') {
+        code = &code[1..];
+    }
+    if code.ends_with(']') {
+        code = &code[..code.len() - 1];
+    }
+    let str_forms = code.split(',').map(|it| it.trim());
     let mut result = Vec::with_capacity(str_forms.clone().count());
     for str_form in str_forms {
         let byte_form = u8::from_str_radix(str_form, 10)?;
@@ -75,17 +93,31 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[wasm_bindgen]
 extern "C" {
-    fn alert(s: &str);
+    // Use `js_namespace` here to bind `console.log(..)` instead of just
+    // `log(..)`
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+}
+
+macro_rules! console_log {
+    // Note that this is using the `log` function imported above during
+    // `bare_bones`
+    ($($t:tt)*) => (log(&format_args!($($t)*).to_string()))
 }
 
 #[wasm_bindgen]
-pub fn greet() {
-    alert("Hello, tidb-key-guess!");
+pub fn parse_input(code: &str) -> Result<Vec<u8>, JsValue> {
+    if let Ok(result) = parse_rust_print(code) {
+        Ok(result)
+    } else if let Ok(result) = parse_golang_fmt_print(code) {
+        Ok(result)
+    } else {
+        Err(JsValue::from_str("Cannot parse input"))
+    }
 }
 
 mod test {
     use super::*;
-
     #[test]
     fn test_encode_bytes() {
         let cases: Vec<(Vec<u8>, Vec<u8>)> = vec![
@@ -117,6 +149,18 @@ mod test {
             let result = parse_golang_fmt_print(code).unwrap();
             let str_form = String::from_utf8(result).unwrap();
             assert_eq!(str_form, expected);
+        }
+    }
+
+    #[test]
+    fn test_parse_rust_print() {
+        let cases = vec![
+            ("80, 0, 118, 1, 0", vec![80u8, 0, 118, 1, 0]),
+            ("[80, 1, 118, 1, 1]", vec![80, 1, 118, 1, 1]),
+        ];
+        for (code, expected) in cases.into_iter() {
+            let result = parse_rust_print(code).unwrap();
+            assert_eq!(result, expected);
         }
     }
 

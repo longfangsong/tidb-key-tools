@@ -5,6 +5,7 @@ authors = ["longfangsong <longfangsong@icloud.com>"]
 edition = "2018"
 description = "A tool for manipulating TiDB related keys"
 license = "Unlicense"
+repository = "https://github.com/longfangsong/tidb-key-tools"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

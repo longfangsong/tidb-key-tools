@@ -74,28 +74,84 @@ pub struct Write {
     short_value: Option<Value>,
     pub has_overlapped_rollback: bool,
     pub gc_fence: Option<TimeStamp>,
+    parsing_trace: Vec<ParsingTrace>,
+}
+
+#[wasm_bindgen]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum EncodeMethod {
+    EnumFlag,
+    SingleByte,
+    Bytes,
+    BigEndian,
+    LittleEndian,
+    VarInt,
+}
+
+#[wasm_bindgen]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ParsingTrace {
+    pub start: usize,
+    pub width: usize,
+    description: String,
+    encoded_in: EncodeMethod,
+}
+
+#[wasm_bindgen]
+impl ParsingTrace {
+    #[wasm_bindgen(getter)]
+    pub fn description(&self) -> String {
+        self.description.clone()
+    }
 }
 
 #[wasm_bindgen]
 impl Write {
     fn parse_rust(mut b: &[u8]) -> anyhow::Result<Write> {
+        let mut parsing_trace = vec![ParsingTrace {
+            start: 0,
+            width: 1,
+            description: "write_type".to_string(),
+            encoded_in: EncodeMethod::EnumFlag,
+        }];
         let write_type_bytes = b[0];
         b = &b[1..];
         let write_type = WriteType::from_u8(write_type_bytes).unwrap();
-        let (start_ts_u64, b_) = varint::decode_u64(b);
-        b = b_;
+        let (start_ts_u64, ts_width) = varint::decode_u64(b);
+        parsing_trace.push(ParsingTrace {
+            start: 1,
+            width: ts_width,
+            description: "start_ts".to_string(),
+            encoded_in: EncodeMethod::VarInt,
+        });
+        b = &b[ts_width..];
         let start_ts = start_ts_u64.into();
 
         let mut short_value = None;
         let mut has_overlapped_rollback = false;
         let mut gc_fence = None;
 
+        let mut current_start = 1 + ts_width;
         while !b.is_empty() {
             let prefix = b[0];
             b = &b[1..];
             match prefix {
                 SHORT_VALUE_PREFIX => {
+                    parsing_trace.push(ParsingTrace {
+                        start: current_start,
+                        width: 1,
+                        description: "flag:short_value".to_string(),
+                        encoded_in: EncodeMethod::EnumFlag,
+                    });
+                    current_start += 1;
                     let len = b[0];
+                    parsing_trace.push(ParsingTrace {
+                        start: current_start,
+                        width: 1,
+                        description: "length:short_value".to_string(),
+                        encoded_in: EncodeMethod::SingleByte,
+                    });
+                    current_start += 1;
                     b = &b[1..];
                     if b.len() < len as usize {
                         panic!(
@@ -106,11 +162,41 @@ impl Write {
                     }
                     short_value = Some(b[..len as usize].to_vec());
                     b = &b[len as usize..];
+                    parsing_trace.push(ParsingTrace {
+                        start: current_start,
+                        width: len as _,
+                        description: "short_value".to_string(),
+                        encoded_in: EncodeMethod::Bytes,
+                    });
+                    current_start += len as usize;
                 }
                 FLAG_OVERLAPPED_ROLLBACK => {
                     has_overlapped_rollback = true;
+                    parsing_trace.push(ParsingTrace {
+                        start: current_start,
+                        width: 1,
+                        description: "flag:overlapped_rollback".to_string(),
+                        encoded_in: EncodeMethod::EnumFlag,
+                    });
+                    current_start += 1;
                 }
-                GC_FENCE_PREFIX => gc_fence = Some(endian::big::decode_u64(&b).into()),
+                GC_FENCE_PREFIX => {
+                    parsing_trace.push(ParsingTrace {
+                        start: current_start,
+                        width: 1,
+                        description: "flag:gc_fence".to_string(),
+                        encoded_in: EncodeMethod::EnumFlag,
+                    });
+                    current_start += 1;
+                    gc_fence = Some(endian::big::decode_u64(&b).into());
+                    parsing_trace.push(ParsingTrace {
+                        start: current_start,
+                        width: 1,
+                        description: "gc_fence".to_string(),
+                        encoded_in: EncodeMethod::BigEndian,
+                    });
+                    current_start += 8;
+                }
                 _ => {
                     // To support forward compatibility, all fields should be serialized in order
                     // and stop parsing if meets an unknown byte.
@@ -125,6 +211,7 @@ impl Write {
             short_value,
             has_overlapped_rollback,
             gc_fence,
+            parsing_trace,
         })
     }
 
@@ -178,6 +265,13 @@ mod tests {
                     short_value: Some(vec![0]),
                     has_overlapped_rollback: false,
                     gc_fence: None,
+                    parsing_trace: vec![
+                        ParsingTrace { start: 0, width: 1, description: "write_type".to_string(), encoded_in: EncodeMethod::EnumFlag }, 
+                        ParsingTrace { start: 1, width: 1, description: "start_ts".to_string(), encoded_in: EncodeMethod::VarInt },
+                        ParsingTrace { start: 2, width: 1, description: "flag:short_value".to_string(), encoded_in: EncodeMethod::EnumFlag }, 
+                        ParsingTrace { start: 3, width: 1, description: "length:short_value".to_string(), encoded_in: EncodeMethod::SingleByte }, 
+                        ParsingTrace { start: 4, width: 1, description: "short_value".to_string(), encoded_in: EncodeMethod::Bytes }
+                    ]
                 },
             ),
             (
@@ -187,7 +281,11 @@ mod tests {
                     start_ts: TimeStamp(424659320104550401),
                     short_value: None,
                     has_overlapped_rollback: false,
-                    gc_fence: None
+                    gc_fence: None,
+                    parsing_trace: vec![
+                        ParsingTrace { start: 0, width: 1, description: "write_type".to_string(), encoded_in: EncodeMethod::EnumFlag }, 
+                        ParsingTrace { start: 1, width: 9, description: "start_ts".to_string(), encoded_in: EncodeMethod::VarInt }
+                    ]
                 }
             ),
             (
@@ -207,6 +305,13 @@ mod tests {
                     short_value: Some(b"{\"version\":8,\"type\":3,\"schema_id\":3,\"table_id\":15,\"old_table_id\":0,\"old_schema_id\":0,\"affected_options\":null}".to_vec()),
                     has_overlapped_rollback: false,
                     gc_fence: None,
+                    parsing_trace: vec![
+                        ParsingTrace { start: 0, width: 1, description: "write_type".to_string(), encoded_in: EncodeMethod::EnumFlag }, 
+                        ParsingTrace { start: 1, width: 9, description: "start_ts".to_string(), encoded_in: EncodeMethod::VarInt }, 
+                        ParsingTrace { start: 10, width: 1, description: "flag:short_value".to_string(), encoded_in: EncodeMethod::EnumFlag }, 
+                        ParsingTrace { start: 11, width: 1, description: "length:short_value".to_string(), encoded_in: EncodeMethod::SingleByte }, 
+                        ParsingTrace { start: 12, width: 109, description: "short_value".to_string(), encoded_in: EncodeMethod::Bytes }
+                    ]
                 },
             ),
         ];

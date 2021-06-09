@@ -1,5 +1,6 @@
 use crate::endian;
 use crate::varint;
+use serde::Serialize;
 use wasm_bindgen::prelude::*;
 pub type CfName = &'static str;
 
@@ -12,6 +13,7 @@ const FLAG_PUT: u8 = b'P';
 const FLAG_DELETE: u8 = b'D';
 const FLAG_LOCK: u8 = b'L';
 const FLAG_ROLLBACK: u8 = b'R';
+
 const FLAG_OVERLAPPED_ROLLBACK: u8 = b'R';
 const GC_FENCE_PREFIX: u8 = b'F';
 pub const CF_DEFAULT: CfName = "default";
@@ -28,7 +30,7 @@ pub enum Modify {
 
 #[wasm_bindgen]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TimeStamp(u64);
+pub struct TimeStamp(pub u64);
 
 impl From<u64> for TimeStamp {
     fn from(t: u64) -> Self {
@@ -45,24 +47,24 @@ pub enum WriteType {
     Rollback,
 }
 
-impl WriteType {
-    pub fn from_u8(b: u8) -> Option<WriteType> {
-        match b {
-            FLAG_PUT => Some(WriteType::Put),
-            FLAG_DELETE => Some(WriteType::Delete),
-            FLAG_LOCK => Some(WriteType::Lock),
-            FLAG_ROLLBACK => Some(WriteType::Rollback),
-            _ => None,
-        }
+#[wasm_bindgen]
+pub fn write_type_from_u8(b: u8) -> Option<WriteType> {
+    match b {
+        FLAG_PUT => Some(WriteType::Put),
+        FLAG_DELETE => Some(WriteType::Delete),
+        FLAG_LOCK => Some(WriteType::Lock),
+        FLAG_ROLLBACK => Some(WriteType::Rollback),
+        _ => None,
     }
+}
 
-    fn to_u8(self) -> u8 {
-        match self {
-            WriteType::Put => FLAG_PUT,
-            WriteType::Delete => FLAG_DELETE,
-            WriteType::Lock => FLAG_LOCK,
-            WriteType::Rollback => FLAG_ROLLBACK,
-        }
+#[wasm_bindgen]
+pub fn write_type_to_u8(w: WriteType) -> u8 {
+    match w {
+        WriteType::Put => FLAG_PUT,
+        WriteType::Delete => FLAG_DELETE,
+        WriteType::Lock => FLAG_LOCK,
+        WriteType::Rollback => FLAG_ROLLBACK,
     }
 }
 
@@ -78,7 +80,7 @@ pub struct Write {
 }
 
 #[wasm_bindgen]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub enum EncodeMethod {
     EnumFlag,
     SingleByte,
@@ -89,7 +91,7 @@ pub enum EncodeMethod {
 }
 
 #[wasm_bindgen]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct ParsingTrace {
     pub start: usize,
     pub width: usize,
@@ -116,7 +118,7 @@ impl Write {
         }];
         let write_type_bytes = b[0];
         b = &b[1..];
-        let write_type = WriteType::from_u8(write_type_bytes).unwrap();
+        let write_type = write_type_from_u8(write_type_bytes).unwrap();
         let (start_ts_u64, ts_width) = varint::decode_u64(b);
         parsing_trace.push(ParsingTrace {
             start: 1,
@@ -220,8 +222,7 @@ impl Write {
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut b = Vec::new();
-        b.push(self.write_type.clone().to_u8());
+        let mut b = vec![write_type_to_u8(self.write_type)];
         b.extend_from_slice(&varint::encode_u64(self.start_ts.0));
         if let Some(v) = &self.short_value {
             b.push(SHORT_VALUE_PREFIX);
@@ -248,6 +249,11 @@ impl Write {
     #[wasm_bindgen(setter)]
     pub fn set_short_value(&mut self, value: Option<Value>) {
         self.short_value = value;
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn parsing_trace(&self) -> JsValue {
+        JsValue::from_serde(&self.parsing_trace).unwrap()
     }
 }
 
